@@ -28,11 +28,6 @@ app.get("/register", function (req, res) {
     res.render("register");
 });
 
-// Secrets - GET Request
-app.get("/secrets", function (req, res) {
-    res.render("secrets");
-});
-
 // Submit - GET Request
 app.get("/submit", function (req, res) {
     res.render("submit");
