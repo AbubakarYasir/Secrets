@@ -13,6 +13,27 @@ app.use(
     })
 );
 
+// MongoDB Connection
+const colors = require("colors");
+const mongoose = require("mongoose");
+mongoose
+    .set("strictQuery", true)
+    .connect("mongodb://0.0.0.0:27017/UserDB", {
+        useNewUrlParser: true,
+        useUnifiedTopology: true,
+    })
+    .then((res) => console.log("> Connected...".green))
+    .catch((err) =>
+        console.log(`> Error while connecting to mongoDB : ${err.message}`.underline.red)
+    );
+
+const userSchema = new mongoose.Schema({
+    email: String,
+    password: String,
+});
+
+const User = new mongoose.model("User", userSchema);
+
 // Home - GET Request
 app.get("/", function (req, res) {
     res.render("home");
