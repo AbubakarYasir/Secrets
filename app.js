@@ -2,7 +2,15 @@
 const express = require("express");
 const bodyParser = require("body-parser"); // Body Parser
 const ejs = require("ejs"); // Templating Engine
-const bcrypt = require("bcrypt"); // Hashing Library
+const session = require("express-session"); // Session Library
+const passport = require("passport"); // Authentication Library
+const passportLocalMongoose = require("passport-local-mongoose"); // Authentication Library
+const GoogleStrategy = require("passport-google-oauth20").Strategy; // Authentication Library
+const findOrCreate = require("mongoose-findorcreate"); // Authentication Library
+
+// Environment Variables
+const dotenv = require("dotenv"); // Environment Variables
+require("dotenv").config();
 
 const app = express();
 // Set the view engine to ejs
@@ -13,6 +21,19 @@ app.use(
         extended: true,
     })
 );
+
+// Session
+app.use(
+    session({
+        secret: "Our little secret.",
+        resave: false,
+        saveUninitialized: false,
+    })
+);
+
+// Passport
+app.use(passport.initialize());
+app.use(passport.session());
 
 // MongoDB Connection
 const colors = require("colors");
@@ -28,17 +49,77 @@ mongoose
         console.log(`> Error while connecting to mongoDB : ${err.message}`.underline.red)
     );
 
+// User Schema
 const userSchema = new mongoose.Schema({
     email: String,
     password: String,
+    googleId: String,
 });
 
+// Passport Local Mongoose
+userSchema.plugin(passportLocalMongoose);
+userSchema.plugin(findOrCreate);
+
+// User Model
 const User = new mongoose.model("User", userSchema);
 
+// Passport Local Mongoose
+passport.use(User.createStrategy());
+
+// Passport Serialize and Deserialize
+passport.serializeUser(function (user, done) {
+    done(null, user.id);
+});
+
+passport.deserializeUser(function (id, done) {
+    User.findById(id, function (err, user) {
+        done(err, user);
+    });
+});
+
+// Google OAuth
+passport.use(
+    new GoogleStrategy(
+        {
+            clientID: process.env.CLIENT_ID,
+            clientSecret: process.env.CLIENT_SECRET,
+            callbackURL: "http://localhost:3000/auth/google/secrets",
+            userProfileURL: "https://www.googleapis.com/oauth2/v3/userinfo",
+        },
+        function (accessToken, refreshToken, profile, cb) {
+            console.log(profile);
+            User.findOrCreate({ googleId: profile.id }, function (err, user) {
+                return cb(err, user);
+            });
+        }
+    )
+);
+
+// Routes
 // Home - GET Request
 app.get("/", function (req, res) {
     res.render("home");
 });
+
+// Google OAuth - GET Request
+app.get(
+    "/auth/google",
+    passport.authenticate("google", {
+        scope: ["profile"],
+    })
+);
+
+// Google OAuth - GET Request
+app.get(
+    "/auth/google/secrets",
+    passport.authenticate("google", {
+        failureRedirect: "/login",
+    }),
+    function (req, res) {
+        // Successful authentication, redirect secrets.
+        res.redirect("/secrets");
+    }
+);
 
 // Login - GET Request
 app.get("/login", function (req, res) {
@@ -55,68 +136,60 @@ app.get("/submit", function (req, res) {
     res.render("submit");
 });
 
+// Secrets - GET Request
+app.get("/secrets", function (req, res) {
+    if (req.isAuthenticated()) {
+        res.render("secrets");
+    } else {
+        res.redirect("/login");
+    }
+});
+
 // Regiser - POST Request
 app.post("/register", function (req, res) {
-    // Hash and Store the User Password
-    bcrypt.hash(req.body.password, 12, function (err, hash) {
-        const newUser = new User({
-            email: req.body.username,
-            password: hash,
-        });
-        // Find if there is a user with the same email
-        User.findOne({ email: newUser.email }, function (err, foundUser) {
+    User.register(
+        {
+            username: req.body.username,
+        },
+        req.body.password,
+        function (err, user) {
             if (err) {
                 console.log(err);
+                res.redirect("/register");
             } else {
-                // If there is no user with the same email, save the new user
-                if (foundUser == null && newUser.email != "") {
-                    newUser.save(function (err) {
-                        if (err) {
-                            console.log(err);
-                        }
-                        // If the user is saved, render the secrets page
-                        else {
-                            res.render("secrets");
-                            console.log("New User has successfully registered:");
-                        }
-                    });
-                }
-                // If there is a user with the same email, render the register page again.
-                else {
-                    res.render("register");
-                    console.log("User already exists!");
-                }
+                passport.authenticate("local")(req, res, function () {
+                    res.redirect("/secrets");
+                });
             }
-        });
-    });
+        }
+    );
 });
 
 // Login - POST Request
 app.post("/login", function (req, res) {
-    const username = req.body.username;
-    const password = req.body.password;
-    // Find the user with the same email
-    User.findOne({ email: username }, function (err, foundUser) {
+    const user = new User({
+        username: req.body.username,
+        password: req.body.password,
+    });
+
+    req.login(user, function (err) {
         if (err) {
             console.log(err);
+        } else {
+            passport.authenticate("local")(req, res, function () {
+                res.redirect("/secrets");
+            });
         }
-        // If the user is found, compare the password
-        else {
-            if (foundUser != null) {
-                bcrypt.compare(password, foundUser.password, function (err, result) {
-                    if (result == true) {
-                        res.render("secrets");
-                    } else {
-                        res.render("login");
-                        console.log("Wrong password!");
-                    }
-                });
-            } // If the user is not found, render the login page again.
-            else if (foundUser == null) {
-                res.render("login");
-                console.log("User not found!");
-            }
+    });
+});
+
+// Logout - GET Request
+app.get("/logout", function (req, res) {
+    req.logout(function (err) {
+        if (err) {
+            return next(err);
         }
+        res.redirect("/");
     });
 });
 
