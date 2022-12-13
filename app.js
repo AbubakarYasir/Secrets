@@ -12,6 +12,7 @@ const findOrCreate = require("mongoose-findorcreate"); // Authentication Library
 const dotenv = require("dotenv"); // Environment Variables
 require("dotenv").config();
 
+// Express
 const app = express();
 // Set the view engine to ejs
 app.use(express.static("public"));
